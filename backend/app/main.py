@@ -1,6 +1,21 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
-app = FastAPI(title="Askly API")
+from app.db.mongo import client
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        await client.admin.command("ping")
+        print("✅ MongoDB connected successfully!")
+    except Exception as e:
+        print("❌ MongoDB connection failed:", e)
+    yield
+
+
+app = FastAPI(title="Askly API", lifespan=lifespan)
 
 
 @app.get("/")
