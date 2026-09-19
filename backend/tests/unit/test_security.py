@@ -1,5 +1,7 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
-from fastapi import HTTPException
+from jose import jwt
 
 from app.core.security import create_token, decode_token, hash_password, verify_password
 
@@ -21,14 +23,28 @@ def test_token_roundtrip():
 
 
 def test_decode_rejects_garbage_token():
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(ValueError):
         decode_token("this-is-not-a-real-jwt")
-    assert exc_info.value.status_code == 401
 
 
 def test_decode_rejects_token_signed_with_different_secret():
-    import jose.jwt as jose_jwt
-    forged = jose_jwt.encode({"sub": "attacker"}, "wrong-secret", algorithm="HS256")
-    with pytest.raises(HTTPException) as exc_info:
+    forged = jwt.encode({"sub": "attacker"}, "wrong-secret", algorithm="HS256")
+    with pytest.raises(ValueError):
         decode_token(forged)
-    assert exc_info.value.status_code == 401
+
+
+def test_decode_rejects_expired_token():
+    from app.core.config import settings
+
+    expired = jwt.encode(
+        {
+            "sub": "expired-user",
+            "iat": datetime.now(timezone.utc) - timedelta(minutes=2),
+            "exp": datetime.now(timezone.utc) - timedelta(minutes=1),
+        },
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+
+    with pytest.raises(ValueError):
+        decode_token(expired)

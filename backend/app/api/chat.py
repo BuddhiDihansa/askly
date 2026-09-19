@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app.api.dependencies import current_user
 from app.core.config import settings
 from app.core.rate_limit import check_rate_limit
-from app.db.mongo import conversations
+from app.db.mongo import get_conversations_collection
 from app.schemas.chat import ChatRequest
 from app.services.orchestrator import answer
 
@@ -17,6 +17,7 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 @router.post("")
 async def chat(payload: ChatRequest, request: Request, current: dict = Depends(current_user)):
     user_id = str(current["_id"])
+    conversations = get_conversations_collection()
 
     # rate-limited per user (not per IP) since each chat call spends real
     # money on the Groq/Tavily APIs - this stops one account from running
@@ -73,6 +74,7 @@ async def chat(payload: ChatRequest, request: Request, current: dict = Depends(c
 
 @router.get("/conversations")
 async def list_conversations(current: dict = Depends(current_user)):
+    conversations = get_conversations_collection()
     cursor = conversations.find({"user_id": str(current["_id"])}).sort("created_at", -1)
     docs = await cursor.to_list(50)
     return [

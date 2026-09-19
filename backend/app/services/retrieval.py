@@ -19,7 +19,7 @@ some credit.
 """
 from rank_bm25 import BM25Okapi
 
-from app.db.mongo import chunks
+from app.db.mongo import get_chunks_collection
 from app.services.embeddings import encode, cosine
 
 # RRF damping constant. 60 is the standard value from the original RRF
@@ -43,6 +43,7 @@ CANDIDATE_POOL_SIZE = 30
 async def hybrid_retrieve(user_id: str, query: str, top_k: int = 6) -> list[dict]:
     """Returns the `top_k` most relevant chunks for `query`, scoped to
     this user's own uploaded documents only."""
+    chunks = get_chunks_collection()
     user_chunks = await chunks.find({"user_id": user_id}).to_list(length=5000)
     if not user_chunks:
         return []

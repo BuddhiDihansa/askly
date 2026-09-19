@@ -11,7 +11,7 @@ from long ago doesn't permanently drag the score down.
 """
 from datetime import datetime, timezone
 
-from app.db.mongo import mastery
+from app.db.mongo import get_mastery_collection
 
 # How much weight a new quiz result gets vs. the existing mastery score.
 # 0.3 means each new result nudges the score by up to 30% toward this
@@ -30,6 +30,7 @@ DEFAULT_STARTING_MASTERY = 0.25
 
 async def get_mastery(user_id: str) -> list[dict]:
     """All topics this user has attempted, ranked strongest first."""
+    mastery = get_mastery_collection()
     cursor = mastery.find({"user_id": user_id}, {"_id": 0}).sort("mastery", -1)
     return await cursor.to_list(length=100)
 
@@ -37,6 +38,7 @@ async def get_mastery(user_id: str) -> list[dict]:
 async def update_mastery(user_id: str, topic: str, correct: int, total: int) -> float:
     """Call this after a quiz attempt. Returns the topic's updated
     mastery score (0.0 = no mastery, 1.0 = full mastery)."""
+    mastery = get_mastery_collection()
     quiz_score = correct / max(total, 1)  # max(total, 1) avoids a divide-by-zero on an empty quiz
 
     existing = await mastery.find_one({"user_id": user_id, "topic": topic})

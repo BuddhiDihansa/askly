@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { api } from "../lib/api";
 
@@ -15,10 +15,20 @@ import { api } from "../lib/api";
  */
 export default function Guard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
-    api("/api/auth/me").catch(() => router.replace("/login"));
-  }, [router]);
+    api("/api/auth/me")
+      .then((user) => {
+        if (!user.onboarding_completed && pathname !== "/onboarding") {
+          router.replace("/onboarding");
+        }
+        if (user.onboarding_completed && pathname === "/onboarding") {
+          router.replace("/dashboard");
+        }
+      })
+      .catch(() => router.replace("/login"));
+  }, [pathname, router]);
 
   return <>{children}</>;
 }

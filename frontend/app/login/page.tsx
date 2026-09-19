@@ -20,7 +20,7 @@ export default function Login() {
     try {
       const x = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
       saveToken(x.token);
-      r.push("/dashboard");
+      r.push(x.user?.onboarding_completed ? "/dashboard" : "/onboarding");
     } catch (e: any) {
       setErr(e.message);
     } finally {

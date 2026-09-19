@@ -1,28 +1,92 @@
 from bson import ObjectId
 from bson.errors import InvalidId
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.security import decode_token
-from app.db.mongo import users
-
-bearer = HTTPBearer()
+from app.db.mongo import get_users_collection
 
 
-async def current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer)) -> dict:
-    """FastAPI dependency: verifies the request's JWT and loads the
-    corresponding user document. Any protected route adds
-    `current: dict = Depends(current_user)` to require a valid login."""
-    user_id = decode_token(credentials.credentials)  # raises 401 itself if invalid/expired
+bearer = HTTPBearer(auto_error=False)
+
+
+async def current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+    """
+    Resolve the authenticated user from the JWT token.
+    """
+
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication credentials are required.",
+            headers={
+                "WWW-Authenticate": "Bearer",
+            },
+        )
+
+    token = credentials.credentials
+
+    # -----------------------------------------------------
+    # Decode token
+    # -----------------------------------------------------
 
     try:
-        user_oid = ObjectId(user_id)
-    except InvalidId:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        user_id = decode_token(token)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired authentication token.",
+            headers={
+                "WWW-Authenticate": "Bearer",
+            },
+        )
 
-    user = await users.find_one({"_id": user_oid})
+    # -----------------------------------------------------
+    # Validate ObjectId
+    # -----------------------------------------------------
+
+    try:
+        user_object_id = ObjectId(user_id)
+
+    except (InvalidId, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication identity.",
+            headers={
+                "WWW-Authenticate": "Bearer",
+            },
+        )
+
+    # -----------------------------------------------------
+    # Find user
+    # -----------------------------------------------------
+
+    users = get_users_collection()
+
+    user = await users.find_one(
+        {
+            "_id": user_object_id,
+        }
+    )
+
     if not user:
-        # token was validly signed, but the account no longer exists
-        # (e.g. deleted) - treat the same as "not logged in"
-        raise HTTPException(status_code=401, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account no longer exists.",
+            headers={
+                "WWW-Authenticate": "Bearer",
+            },
+        )
+
+    if not user.get("is_active", True):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account is inactive.",
+            headers={
+                "WWW-Authenticate": "Bearer",
+            },
+        )
+
     return user

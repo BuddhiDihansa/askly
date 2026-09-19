@@ -21,7 +21,7 @@ export default function Register() {
     try {
       const x = await api("/api/auth/register", { method: "POST", body: JSON.stringify({ name, email, password }) });
       saveToken(x.token);
-      r.push("/dashboard");
+      r.push("/onboarding");
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -48,7 +48,7 @@ export default function Register() {
           <form className="form" onSubmit={go}>
             <input className="input" placeholder="Full name" value={name} onChange={e => setName(e.target.value)} required />
             <input className="input" placeholder="Email address" type="email" value={email} onChange={e => setEmail(e.target.value)} required />
-            <input className="input" placeholder="Password (6+ characters)" type="password" value={password} onChange={e => setPassword(e.target.value)} minLength={6} required />
+            <input className="input" placeholder="Password (8+ characters)" type="password" value={password} onChange={e => setPassword(e.target.value)} minLength={8} required />
             {err && <small style={{ color: "#ff9db1" }}>{err}</small>}
             <button className="btn" disabled={loading}>{loading ? "Creating…" : "Create account"}</button>
           </form>

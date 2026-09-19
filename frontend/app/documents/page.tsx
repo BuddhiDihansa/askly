@@ -22,8 +22,8 @@ export default function Documents() {
     setBusy(true); setMsg("Indexing your PDF…");
     try {
       const fd = new FormData(); fd.append("file", f);
-      await api("/api/documents/upload", { method: "POST", body: fd });
-      setMsg("Document indexed successfully.");
+      const uploaded = await api("/api/documents/upload", { method: "POST", body: fd });
+      setMsg(uploaded.status === "completed" ? "Document indexed successfully." : "Document uploaded.");
       await load();
     } catch (e: any) { setMsg(e.message); }
     finally { setBusy(false); e.target.value = ""; }
@@ -57,7 +57,7 @@ export default function Documents() {
           <div className="list">
             {docs.map(d => (
               <div className="item" key={d.id}>
-                <div className="item-name"><FileText className="file-icon" size={20} /><div><b>{d.filename}</b><div className="muted" style={{ marginTop: 4, fontSize: 11 }}>{d.pages} pages · {d.chunks} chunks</div></div></div>
+                <div className="item-name"><FileText className="file-icon" size={20} /><div><b>{d.filename}</b><div className="muted" style={{ marginTop: 4, fontSize: 11 }}>{d.pages} pages · {d.chunks} chunks · {d.status || "completed"}</div>{d.topics?.length > 0 && <div className="muted" style={{ marginTop: 4, fontSize: 11 }}>Topics: {d.topics.slice(0, 4).join(", ")}</div>}{d.processing_error && <div style={{ marginTop: 4, fontSize: 11, color: "#ff9db1" }}>{d.processing_error}</div>}</div></div>
                 <button className="btn danger" onClick={() => del(d.id)}><Trash2 size={15} style={{ verticalAlign: "-3px" }} /> Delete</button>
               </div>
             ))}

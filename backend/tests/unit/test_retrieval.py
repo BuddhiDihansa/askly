@@ -1,12 +1,12 @@
 import pytest
 
-import app.db.mongo as mongo  # module reference, not `from ... import chunks` -
-                                # that would freeze the pre-patch (real) collection
+from app.db.mongo import get_chunks_collection
 from app.services.retrieval import hybrid_retrieve
 
 
 async def _insert_chunk(user_id, text, filename="doc.pdf", page=1, embedding=None):
-    await mongo.chunks.insert_one({
+    chunks = get_chunks_collection()
+    await chunks.insert_one({
         "user_id": user_id,
         "text": text,
         "filename": filename,

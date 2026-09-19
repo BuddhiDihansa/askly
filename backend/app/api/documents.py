@@ -14,8 +14,14 @@ from pypdf.errors import PdfReadError
 
 from app.api.dependencies import current_user
 from app.core.config import settings
-from app.db.mongo import chunks, documents
+from app.db.mongo import get_chunks_collection, get_documents_collection
 from app.services.embeddings import encode
+from app.services.document_intelligence import (
+    DocumentProcessingError,
+    analyze_pages,
+    build_chunks,
+    extract_pages,
+)
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -49,6 +55,8 @@ def split_text(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) 
 
 @router.post("/upload")
 async def upload(file: UploadFile = File(...), current: dict = Depends(current_user)):
+    chunks = get_chunks_collection()
+    documents = get_documents_collection()
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
@@ -61,59 +69,120 @@ async def upload(file: UploadFile = File(...), current: dict = Depends(current_u
     if len(raw) > max_bytes:
         raise HTTPException(status_code=413, detail=f"File exceeds the {settings.max_upload_mb}MB limit")
 
-    try:
-        reader = PdfReader(io.BytesIO(raw))
-    except PdfReadError:
-        raise HTTPException(status_code=400, detail="This file could not be read as a PDF")
-
-    pieces = []
-    for page_number, page in enumerate(reader.pages, start=1):
-        page_text = page.extract_text() or ""
-        for chunk_index, chunk_text in enumerate(split_text(page_text)):
-            pieces.append({"text": chunk_text, "page": page_number, "chunk": chunk_index})
-
-    if not pieces:
-        raise HTTPException(status_code=400, detail="No readable text found in PDF")
-
-    vectors = encode([p["text"] for p in pieces])
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     user_id = str(current["_id"])
-
+    now = datetime.datetime.now(datetime.timezone.utc)
     doc_result = await documents.insert_one({
         "user_id": user_id,
         "filename": file.filename,
-        "pages": len(reader.pages),
-        "chunks": len(pieces),
+        "status": "uploaded",
+        "pages": 0,
+        "chunks": 0,
+        "processing_error": None,
         "created_at": now,
+        "updated_at": now,
     })
 
-    await chunks.insert_many([
-        {**piece, "embedding": vector, "document_id": str(doc_result.inserted_id),
-         "user_id": user_id, "filename": file.filename}
-        for piece, vector in zip(pieces, vectors)
-    ])
+    document_id = doc_result.inserted_id
+    try:
+        await documents.update_one(
+            {"_id": document_id, "user_id": user_id},
+            {"$set": {"status": "extracting", "processing_started_at": datetime.datetime.now(datetime.timezone.utc)}},
+        )
+        reader = PdfReader(io.BytesIO(raw))
+        pages = extract_pages(reader)
+        await documents.update_one(
+            {"_id": document_id, "user_id": user_id},
+            {"$set": {"status": "processing", "pages": len(reader.pages)}},
+        )
+        units, chapters = analyze_pages(pages)
+        pieces = build_chunks(units)
+        if not pieces:
+            raise DocumentProcessingError("No learning content could be created from this PDF")
+
+        vectors = encode([piece["text"] for piece in pieces])
+        created_at = datetime.datetime.now(datetime.timezone.utc)
+        chunk_documents = [
+            {
+                **piece,
+                "chunk": piece["source_order"],
+                "embedding": vector,
+                "document_id": str(document_id),
+                "user_id": user_id,
+                "filename": file.filename,
+                "created_at": created_at,
+            }
+            for piece, vector in zip(pieces, vectors)
+        ]
+        await chunks.insert_many(chunk_documents)
+
+        stored_count = await chunks.count_documents({"document_id": str(document_id), "user_id": user_id})
+        if stored_count != len(chunk_documents):
+            raise DocumentProcessingError("Document chunks failed validation")
+
+        await documents.update_one(
+            {"_id": document_id, "user_id": user_id},
+            {"$set": {
+                "status": "completed",
+                "pages": len(reader.pages),
+                "chunks": stored_count,
+                "chapters": chapters,
+                "topics": sorted({unit.topic for unit in units if unit.topic}),
+                "processing_completed_at": datetime.datetime.now(datetime.timezone.utc),
+                "updated_at": datetime.datetime.now(datetime.timezone.utc),
+            }},
+        )
+    except (PdfReadError, DocumentProcessingError):
+        await chunks.delete_many({"document_id": str(document_id), "user_id": user_id})
+        await documents.update_one(
+            {"_id": document_id, "user_id": user_id},
+            {"$set": {
+                "status": "failed",
+                "processing_error": "This PDF could not be processed into readable learning content.",
+                "updated_at": datetime.datetime.now(datetime.timezone.utc),
+            }},
+        )
+        raise HTTPException(status_code=400, detail="This PDF could not be processed into readable learning content")
+    except Exception:
+        await chunks.delete_many({"document_id": str(document_id), "user_id": user_id})
+        await documents.update_one(
+            {"_id": document_id, "user_id": user_id},
+            {"$set": {
+                "status": "failed",
+                "processing_error": "Document processing failed. Please try again.",
+                "updated_at": datetime.datetime.now(datetime.timezone.utc),
+            }},
+        )
+        raise HTTPException(status_code=422, detail="Document processing failed. Please try again.")
 
     return {
-        "id": str(doc_result.inserted_id),
+        "id": str(document_id),
         "filename": file.filename,
         "pages": len(reader.pages),
-        "chunks": len(pieces),
+        "chunks": stored_count,
+        "status": "completed",
+        "chapters": chapters,
+        "topics": sorted({unit.topic for unit in units if unit.topic}),
     }
 
 
 @router.get("")
 async def list_documents(current: dict = Depends(current_user)):
+    documents = get_documents_collection()
     cursor = documents.find({"user_id": str(current["_id"])}).sort("created_at", -1)
     docs = await cursor.to_list(100)
     return [
-        {"id": str(d["_id"]), "filename": d["filename"], "pages": d["pages"],
-         "chunks": d["chunks"], "created_at": d["created_at"]}
+        {"id": str(d["_id"]), "filename": d["filename"], "pages": d.get("pages", 0),
+         "chunks": d.get("chunks", 0), "status": d.get("status", "completed"),
+         "processing_error": d.get("processing_error"), "chapters": d.get("chapters", []),
+         "topics": d.get("topics", []), "created_at": d["created_at"]}
         for d in docs
     ]
 
 
 @router.delete("/{doc_id}")
 async def delete_document(doc_id: str, current: dict = Depends(current_user)):
+    chunks = get_chunks_collection()
+    documents = get_documents_collection()
     try:
         doc_oid = ObjectId(doc_id)
     except InvalidId:

@@ -7,7 +7,7 @@ from app.ai.llm import chat, parse_json
 from app.api.dependencies import current_user
 from app.core.config import settings
 from app.core.rate_limit import check_rate_limit
-from app.db.mongo import quiz_attempts
+from app.db.mongo import get_quiz_attempts_collection
 from app.schemas.chat import QuizRequest, QuizSubmit
 from app.services.mastery import get_mastery, update_mastery
 from app.services.retrieval import hybrid_retrieve
@@ -34,6 +34,7 @@ def _pick_difficulty(requested: str, current_mastery: float) -> str:
 @router.post("/generate")
 async def generate(payload: QuizRequest, request: Request, current: dict = Depends(current_user)):
     user_id = str(current["_id"])
+    quiz_attempts = get_quiz_attempts_collection()
 
     # quiz generation calls the LLM (real cost), so it's rate-limited
     # the same way chat is
@@ -97,6 +98,7 @@ async def generate(payload: QuizRequest, request: Request, current: dict = Depen
 @router.post("/submit")
 async def submit(payload: QuizSubmit, current: dict = Depends(current_user)):
     user_id = str(current["_id"])
+    quiz_attempts = get_quiz_attempts_collection()
     quiz = await quiz_attempts.find_one({"quiz_id": payload.quiz_id, "user_id": user_id})
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found")

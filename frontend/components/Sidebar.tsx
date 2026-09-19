@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, MessageCircle, FileText, BrainCircuit, TrendingUp, LogOut } from "lucide-react";
+import { LayoutDashboard, MessageCircle, FileText, BrainCircuit, TrendingUp, UserRound, LogOut } from "lucide-react";
 
 const items = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -10,6 +10,7 @@ const items = [
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/quiz", label: "Adaptive Quiz", icon: BrainCircuit },
   { href: "/progress", label: "Progress", icon: TrendingUp },
+  { href: "/profile", label: "Profile", icon: UserRound },
 ];
 
 export default function Sidebar() {
