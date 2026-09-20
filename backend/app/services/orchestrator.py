@@ -4,15 +4,15 @@ a student's message, then asks the LLM to answer *grounded* in that
 context (see the system prompt below for how hallucination is controlled).
 """
 from app.ai.llm import chat
+from app.db.mongo import get_users_collection
 from app.services.mastery import get_mastery
 from app.services.rag import retrieve
 from app.services.web_search import search_web
+from app.services.tutor import insufficient_evidence_message, plan_tutor_request
 
 # if the student's message contains any of these words, assume they want
 # up-to-date information the LLM's training data can't have, and trigger
 # a live web search rather than relying on the model's memorized knowledge
-TIME_SENSITIVE_KEYWORDS = {"latest", "today", "current", "recent", "news", "2026", "now", "update"}
-
 # how many of the student's most recent mastery topics to show the LLM,
 # so answers can be pitched at roughly the right level without the
 # prompt growing unbounded as a student studies more topics over time
@@ -32,12 +32,17 @@ to answer this" than to make something up. Explain difficult concepts step-by-st
 
 
 async def answer(user_id: str, message: str, history: list[dict]) -> tuple[str, list[dict], list[dict]]:
-    needs_web_search = any(word in message.lower().split() for word in TIME_SENSITIVE_KEYWORDS)
+    plan = plan_tutor_request(message)
 
     rag_result = await retrieve(user_id, message)
     document_sources = rag_result["sources"]
-    web_sources = await search_web(message) if needs_web_search else []
+    web_sources = await search_web(message) if plan.needs_web else []
     mastery_levels = await get_mastery(user_id)
+    profile = await get_users_collection().find_one(
+        {"_id": __import__("bson").ObjectId(user_id)},
+        {"_id": 0, "name": 1, "education_level": 1, "learning_goal": 1,
+         "preferred_language": 1, "study_style": 1, "study_subjects": 1},
+    ) or {}
 
     mastery_summary = (
         ", ".join(f"{m['topic']}={m['mastery']:.0%}" for m in mastery_levels[:MAX_MASTERY_TOPICS_SHOWN])
@@ -49,6 +54,9 @@ async def answer(user_id: str, message: str, history: list[dict]) -> tuple[str, 
     )
 
     user_prompt = (
+        f"Tutor intent: {plan.intent}\n"
+        f"Answer strategy: {plan.strategy}\n"
+        f"Learner profile: {profile}\n"
         f"Student mastery: {mastery_summary}\n"
         f"DOCUMENT EVIDENCE:\n{document_context or 'None'}\n"
         f"WEB EVIDENCE:\n{web_context or 'None'}\n\n"
@@ -60,5 +68,7 @@ async def answer(user_id: str, message: str, history: list[dict]) -> tuple[str, 
         *history[-MAX_HISTORY_MESSAGES:],
         {"role": "user", "content": user_prompt},
     ]
+    if not document_sources and not web_sources and plan.document_only:
+        return insufficient_evidence_message(True), [], []
     reply = await chat(messages)
     return reply, document_sources, web_sources

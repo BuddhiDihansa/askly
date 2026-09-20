@@ -3,6 +3,7 @@ from typing import Optional
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=6000)
     conversation_id: Optional[str] = None
+    action: Optional[str] = Field(default=None, max_length=40)
 class QuizRequest(BaseModel):
     topic: str = Field(min_length=2, max_length=120)
     difficulty: Optional[str] = "adaptive"

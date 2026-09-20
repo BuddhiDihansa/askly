@@ -90,3 +90,9 @@ async def current_user(
         )
 
     return user
+
+
+async def admin_user(user: dict = Depends(current_user)) -> dict:
+    if user.get("role", "student") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrator access required")
+    return user

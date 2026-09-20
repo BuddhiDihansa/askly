@@ -30,6 +30,7 @@ def _user_response(user: dict) -> UserResponse:
         daily_study_minutes=user.get("daily_study_minutes"),
         study_style=user.get("study_style"),
         onboarding_completed=user.get("onboarding_completed", False),
+        role=user.get("role", "student"),
         created_at=user.get("created_at"),
         updated_at=user.get("updated_at"),
     )
@@ -55,6 +56,7 @@ async def register(payload: RegisterRequest, request: Request) -> TokenResponse:
         "email": email,
         "password_hash": hash_password(payload.password),
         "is_active": True,
+        "role": "student",
         "created_at": now,
         "updated_at": now,
     }

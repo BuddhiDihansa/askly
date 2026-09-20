@@ -37,6 +37,10 @@ export default function Chat() {
     } finally { setBusy(false); }
   }
 
+  function useAction(action: string) {
+    setText(`${action}: `);
+  }
+
   return (
     <Guard>
       <div className="shell">
@@ -51,6 +55,9 @@ export default function Chat() {
           </div>
           <div className="card chatbox">
             <div className="chat-head"><div className="row"><span className="quick-icon"><Sparkles size={17} /></span><div><b>ASKLY Tutor</b><small style={{ display: "block" }}>Context-aware learning assistant</small></div></div><span className="pill">Ready</span></div>
+            <div className="chat-actions">
+              {['Explain simpler', 'Step by step', 'Give an example', 'Summarize'].map(action => <button className="btn secondary" type="button" key={action} onClick={() => useAction(action)}>{action}</button>)}
+            </div>
             <div className="messages">
               {messages.length === 0 && (
                 <div className="empty-state">

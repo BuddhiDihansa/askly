@@ -46,6 +46,12 @@ async def update_mastery(user_id: str, topic: str, correct: int, total: int) -> 
 
     updated_mastery = previous_mastery * PREVIOUS_MASTERY_WEIGHT + quiz_score * NEW_RESULT_WEIGHT
     updated_mastery = round(max(0.0, min(1.0, updated_mastery)), 3)  # clamp to [0, 1]
+    previous_attempts = (existing or {}).get("attempts", 0)
+    previous_correct = (existing or {}).get("correct_answers", 0)
+    previous_incorrect = (existing or {}).get("incorrect_answers", 0)
+    correct_answers = previous_correct + max(correct, 0)
+    incorrect_answers = previous_incorrect + max(total - correct, 0)
+    total_answers = correct_answers + incorrect_answers
 
     await mastery.update_one(
         {"user_id": user_id, "topic": topic},
@@ -53,7 +59,11 @@ async def update_mastery(user_id: str, topic: str, correct: int, total: int) -> 
             "$set": {
                 "mastery": updated_mastery,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
-                "attempts": (existing or {}).get("attempts", 0) + 1,
+                "last_practiced": datetime.now(timezone.utc).isoformat(),
+                "attempts": previous_attempts + 1,
+                "correct_answers": correct_answers,
+                "incorrect_answers": incorrect_answers,
+                "accuracy": round(correct_answers / max(total_answers, 1), 3),
             }
         },
         upsert=True,

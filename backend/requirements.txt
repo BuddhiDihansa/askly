@@ -16,4 +16,5 @@ pypdf==6.0.0
 numpy==2.3.2
 rank-bm25==0.2.2
 sentence-transformers==5.1.0
+tf-keras==2.20.1
 scikit-learn==1.7.1

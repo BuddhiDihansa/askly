@@ -1,8 +1,14 @@
 """Structured retrieval contract and bounded context assembly."""
 
+import time
+
 from app.core.config import settings
 from app.services.reranker import rerank
 from app.services.retrieval import hybrid_retrieve, normalize_query
+
+_cache: dict[tuple, tuple[float, dict]] = {}
+_CACHE_TTL_SECONDS = 30
+_CACHE_MAX_ENTRIES = 256
 
 
 def _quality(results: list[dict]) -> str:
@@ -40,6 +46,10 @@ def build_context(results: list[dict], max_chars: int | None = None) -> str:
 
 async def retrieve(user_id: str, query: str, filters: dict | None = None) -> dict:
     normalized = normalize_query(query)
+    cache_key = (user_id, normalized, tuple(sorted((filters or {}).items())))
+    cached = _cache.get(cache_key)
+    if cached and time.monotonic() - cached[0] < _CACHE_TTL_SECONDS:
+        return dict(cached[1])
     candidates = await hybrid_retrieve(
         user_id,
         normalized,
@@ -50,7 +60,6 @@ async def retrieve(user_id: str, query: str, filters: dict | None = None) -> dic
     sources = [
         {
             "source_type": "document",
-            "document_id": result.get("document_id"),
             "filename": result.get("filename"),
             "page": result.get("page", result.get("page_start", 1)),
             "page_start": result.get("page_start", result.get("page", 1)),
@@ -62,7 +71,7 @@ async def retrieve(user_id: str, query: str, filters: dict | None = None) -> dic
         }
         for result in results
     ]
-    return {
+    result = {
         "query": query,
         "normalized_query": normalized,
         "results": results,
@@ -75,3 +84,7 @@ async def retrieve(user_id: str, query: str, filters: dict | None = None) -> dic
             "evidence_quality": _quality(results),
         },
     }
+    if len(_cache) >= _CACHE_MAX_ENTRIES:
+        _cache.pop(next(iter(_cache)))
+    _cache[cache_key] = (time.monotonic(), result)
+    return result

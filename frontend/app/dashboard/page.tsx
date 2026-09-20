@@ -49,6 +49,7 @@ export default function Dashboard() {
             <div className="card"><div className="label">Conversations</div><div className="stat">{p.stats?.conversations || 0}</div></div>
             <div className="card"><div className="label">Completed quizzes</div><div className="stat">{p.stats?.quizzes || 0}</div></div>
             <div className="card"><div className="label">Topics tracked</div><div className="stat">{p.mastery?.length || 0}</div></div>
+            <div className="card"><div className="label">Cards due</div><div className="stat">{p.stats?.due_flashcards || 0}</div></div>
           </div>
 
           <div className="grid" style={{ gridTemplateColumns: "1.2fr .8fr", marginTop: 18 }}>
@@ -79,6 +80,7 @@ export default function Dashboard() {
                 </div>
               ))}
               {!p.mastery?.length && <div className="empty-state">Complete a quiz to start tracking mastery.</div>}
+              {p.weak_topics?.length > 0 && <p className="muted" style={{ marginTop: 16, fontSize: 12 }}>Focus next: {p.weak_topics.slice(0, 3).join(", ")}</p>}
             </div>
           </div>
         </main>

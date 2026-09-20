@@ -2,11 +2,16 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api import (
     auth,
+    admin,
     chat,
     documents as documents_api,
+    flashcards,
+    notifications,
+    planner,
     progress,
     profile,
     quiz,
@@ -18,6 +23,9 @@ from app.db.mongo import (
     get_chunks_collection,
     get_conversations_collection,
     get_documents_collection,
+    get_flashcards_collection,
+    get_notifications_collection,
+    get_study_plans_collection,
     get_mastery_collection,
     get_quiz_attempts_collection,
     get_users_collection,
@@ -39,6 +47,9 @@ async def create_database_indexes() -> None:
     chunks = get_chunks_collection()
     quiz_attempts = get_quiz_attempts_collection()
     mastery = get_mastery_collection()
+    flashcards = get_flashcards_collection()
+    notifications = get_notifications_collection()
+    study_plans = get_study_plans_collection()
 
     async def ensure_index(collection, keys, *, unique=False):
         expected_keys = list(keys) if isinstance(keys, list) else [(keys, 1)]
@@ -57,6 +68,9 @@ async def create_database_indexes() -> None:
     await ensure_index(chunks, [("user_id", 1), ("chapter", 1), ("section", 1), ("topic", 1)])
     await ensure_index(quiz_attempts, [("user_id", 1), ("created_at", -1)])
     await ensure_index(mastery, [("user_id", 1), ("topic", 1)], unique=True)
+    await ensure_index(flashcards, [("user_id", 1), ("due_at", 1)])
+    await ensure_index(notifications, [("user_id", 1), ("read", 1), ("created_at", -1)])
+    await ensure_index(study_plans, [("user_id", 1), ("created_at", -1)])
 
 
 @asynccontextmanager
@@ -127,13 +141,29 @@ app.add_middleware(
 )
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+
 # ---------------------------------------------------------
 # API ROUTES
 # ---------------------------------------------------------
 
 app.include_router(auth.router)
+app.include_router(admin.router)
 app.include_router(chat.router)
 app.include_router(documents_api.router)
+app.include_router(flashcards.router)
+app.include_router(notifications.router)
+app.include_router(planner.router)
 app.include_router(quiz.router)
 app.include_router(progress.router)
 app.include_router(profile.router)

@@ -97,3 +97,15 @@ def get_quiz_attempts_collection() -> AsyncIOMotorCollection:
 
 def get_mastery_collection() -> AsyncIOMotorCollection:
     return get_database()["mastery"]
+
+
+def get_flashcards_collection() -> AsyncIOMotorCollection:
+    return get_database()["flashcards"]
+
+
+def get_study_plans_collection() -> AsyncIOMotorCollection:
+    return get_database()["study_plans"]
+
+
+def get_notifications_collection() -> AsyncIOMotorCollection:
+    return get_database()["notifications"]

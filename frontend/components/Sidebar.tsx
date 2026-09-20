@@ -2,13 +2,17 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, MessageCircle, FileText, BrainCircuit, TrendingUp, UserRound, LogOut } from "lucide-react";
+import { LayoutDashboard, MessageCircle, FileText, BrainCircuit, TrendingUp, UserRound, LogOut, Layers3, CalendarDays, Bell } from "lucide-react";
+import ThemeToggle from "./ThemeToggle";
 
 const items = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/chat", label: "AI Tutor", icon: MessageCircle },
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/quiz", label: "Adaptive Quiz", icon: BrainCircuit },
+  { href: "/flashcards", label: "Flashcards", icon: Layers3 },
+  { href: "/planner", label: "Study planner", icon: CalendarDays },
+  { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/progress", label: "Progress", icon: TrendingUp },
   { href: "/profile", label: "Profile", icon: UserRound },
 ];
@@ -43,6 +47,10 @@ export default function Sidebar() {
       </nav>
 
       <div className="sidebar-bottom">
+        <div className="sidebar-actions">
+          <span className="muted">Appearance</span>
+          <ThemeToggle />
+        </div>
         <div className="sidebar-tip">
           <span className="status-dot" />
           <div>

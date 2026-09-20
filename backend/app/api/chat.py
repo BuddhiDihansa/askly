@@ -37,7 +37,8 @@ async def chat(payload: ChatRequest, request: Request, current: dict = Depends(c
         history = conversation.get("messages", [])
 
     try:
-        reply, citations, web_sources = await answer(user_id, payload.message, history)
+        message = f"{payload.action}: {payload.message}" if payload.action else payload.message
+        reply, citations, web_sources = await answer(user_id, message, history)
     except Exception:
         # don't leak internal errors (API keys, stack traces) to the client
         raise HTTPException(
@@ -46,7 +47,7 @@ async def chat(payload: ChatRequest, request: Request, current: dict = Depends(c
         )
 
     now = datetime.now(timezone.utc).isoformat()
-    user_message = {"role": "user", "content": payload.message, "at": now}
+    user_message = {"role": "user", "content": payload.message, "action": payload.action, "at": now}
     assistant_message = {"role": "assistant", "content": reply, "at": now}
 
     if payload.conversation_id:

@@ -26,6 +26,7 @@ class UserResponse(BaseModel):
     daily_study_minutes: int | None = None
     study_style: str | None = None
     onboarding_completed: bool = False
+    role: str = "student"
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

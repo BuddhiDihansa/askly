@@ -10,7 +10,8 @@ from app.core.rate_limit import check_rate_limit
 from app.db.mongo import get_quiz_attempts_collection
 from app.schemas.chat import QuizRequest, QuizSubmit
 from app.services.mastery import get_mastery, update_mastery
-from app.services.retrieval import hybrid_retrieve
+from app.api.notifications import create_notification
+from app.services.rag import retrieve
 
 router = APIRouter(prefix="/api/quiz", tags=["quiz"])
 
@@ -31,6 +32,35 @@ def _pick_difficulty(requested: str, current_mastery: float) -> str:
     return "beginner"
 
 
+def _validate_questions(data: dict, expected_count: int) -> list[dict]:
+    questions = data.get("questions") if isinstance(data, dict) else None
+    if not isinstance(questions, list) or len(questions) != expected_count:
+        raise ValueError("Quiz response has an invalid question count")
+    validated = []
+    for question in questions:
+        if not isinstance(question, dict):
+            raise ValueError("Quiz question must be an object")
+        prompt = question.get("question")
+        options = question.get("options")
+        answer = question.get("answer")
+        explanation = question.get("explanation")
+        if (
+            not isinstance(prompt, str) or not prompt.strip()
+            or not isinstance(options, list) or len(options) != 4
+            or not all(isinstance(option, str) and option.strip() for option in options)
+            or not isinstance(answer, int) or not 0 <= answer < len(options)
+            or not isinstance(explanation, str) or not explanation.strip()
+        ):
+            raise ValueError("Quiz response contains an invalid question")
+        validated.append({
+            "question": prompt.strip(),
+            "options": [option.strip() for option in options],
+            "answer": answer,
+            "explanation": explanation.strip(),
+        })
+    return validated
+
+
 @router.post("/generate")
 async def generate(payload: QuizRequest, request: Request, current: dict = Depends(current_user)):
     user_id = str(current["_id"])
@@ -40,7 +70,8 @@ async def generate(payload: QuizRequest, request: Request, current: dict = Depen
     # the same way chat is
     check_rate_limit(key=f"quiz:{user_id}", max_per_minute=settings.rate_limit_chat_per_minute)
 
-    source_chunks = await hybrid_retrieve(user_id, payload.topic, top_k=8)
+    rag_result = await retrieve(user_id, payload.topic)
+    source_chunks = rag_result["results"]
     mastery_levels = await get_mastery(user_id)
     current_mastery = next(
         (m["mastery"] for m in mastery_levels if m["topic"].lower() == payload.topic.lower()),
@@ -65,6 +96,7 @@ async def generate(payload: QuizRequest, request: Request, current: dict = Depen
             temperature=0.4,
         )
         data = parse_json(raw_reply)
+        questions = _validate_questions(data, payload.count)
     except Exception:
         # don't leak the raw LLM output or internal exception to the client
         raise HTTPException(status_code=502, detail="Quiz generation failed. Please try again.")
@@ -74,8 +106,10 @@ async def generate(payload: QuizRequest, request: Request, current: dict = Depen
         "quiz_id": quiz_id,
         "user_id": user_id,
         "topic": payload.topic,
-        "questions": data["questions"],
+        "questions": questions,
         "difficulty": difficulty,
+        "sources": rag_result["sources"],
+        "evidence_quality": rag_result["retrieval_metadata"]["evidence_quality"],
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -92,6 +126,8 @@ async def generate(payload: QuizRequest, request: Request, current: dict = Depen
         "difficulty": difficulty,
         "questions": questions_without_answers,
         "mastery": current_mastery,
+        "sources": rag_result["sources"],
+        "evidence_quality": rag_result["retrieval_metadata"]["evidence_quality"],
     }
 
 
@@ -117,6 +153,11 @@ async def submit(payload: QuizSubmit, current: dict = Depends(current_user)):
     await quiz_attempts.update_one(
         {"_id": quiz["_id"]},
         {"$set": {"score": correct, "submitted_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    await create_notification(
+        user_id,
+        "Quiz reviewed",
+        f"You scored {correct}/{total} on {quiz['topic']}. Review the topic again to strengthen retention.",
     )
 
     return {
