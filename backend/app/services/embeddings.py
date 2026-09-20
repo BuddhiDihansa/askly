@@ -13,6 +13,15 @@ from app.core.config import settings
 _model = None
 
 
+def validate_embedding(vector: list[float], expected_dimension: int | None = None) -> list[float]:
+    values = [float(value) for value in vector]
+    if not values or not np.isfinite(values).all():
+        raise ValueError("Embedding must be a finite, non-empty vector")
+    if expected_dimension is not None and len(values) != expected_dimension:
+        raise ValueError("Embedding has an unexpected dimension")
+    return values
+
+
 def model():
     global _model
     if _model is None:
@@ -33,8 +42,14 @@ def encode(texts: list[str]) -> list[list[float]]:
     # what lets cosine() below use a plain dot product instead of the
     # full cosine similarity formula (dot product / (|a| * |b|)) -
     # cheaper to compute, same result, once both vectors are unit length.
-    return model().encode(texts, normalize_embeddings=True, show_progress_bar=False).tolist()
+    vectors = model().encode(texts, normalize_embeddings=True, show_progress_bar=False).tolist()
+    if not vectors:
+        return []
+    dimension = len(vectors[0])
+    return [validate_embedding(vector, dimension) for vector in vectors]
 
 
 def cosine(a: list[float], b: list[float]) -> float:
-    return float(np.dot(np.asarray(a), np.asarray(b)))
+    left = validate_embedding(a)
+    right = validate_embedding(b, len(left))
+    return float(np.dot(np.asarray(left), np.asarray(right)))

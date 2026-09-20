@@ -5,7 +5,7 @@ context (see the system prompt below for how hallucination is controlled).
 """
 from app.ai.llm import chat
 from app.services.mastery import get_mastery
-from app.services.retrieval import hybrid_retrieve
+from app.services.rag import retrieve
 from app.services.web_search import search_web
 
 # if the student's message contains any of these words, assume they want
@@ -34,7 +34,8 @@ to answer this" than to make something up. Explain difficult concepts step-by-st
 async def answer(user_id: str, message: str, history: list[dict]) -> tuple[str, list[dict], list[dict]]:
     needs_web_search = any(word in message.lower().split() for word in TIME_SENSITIVE_KEYWORDS)
 
-    document_sources = await hybrid_retrieve(user_id, message, top_k=6)
+    rag_result = await retrieve(user_id, message)
+    document_sources = rag_result["sources"]
     web_sources = await search_web(message) if needs_web_search else []
     mastery_levels = await get_mastery(user_id)
 
@@ -42,9 +43,7 @@ async def answer(user_id: str, message: str, history: list[dict]) -> tuple[str, 
         ", ".join(f"{m['topic']}={m['mastery']:.0%}" for m in mastery_levels[:MAX_MASTERY_TOPICS_SHOWN])
         or "No mastery data yet"
     )
-    document_context = "\n\n".join(
-        f"[Document: {s['filename']}, page {s['page']}] {s['text']}" for s in document_sources
-    )
+    document_context = rag_result["context"]
     web_context = "\n".join(
         f"[Web: {w.get('title', '')}] {w.get('content', '')} ({w.get('url', '')})" for w in web_sources
     )

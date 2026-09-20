@@ -10,77 +10,98 @@ other misses.
   chunks that share the query's exact words - important for things
   semantic search is weak at, like specific names, codes, or numbers.
 
-The two rankings are merged with Reciprocal Rank Fusion (RRF): each
-chunk gets a score based on its *rank position* in each list (not the
-raw score, since BM25 scores and cosine scores live on different
-scales and can't be compared directly). A chunk ranked #1 by both
-methods scores highest; a chunk that only one method found still gets
-some credit.
+The two rankings are min-max normalized and combined with configurable
+semantic and lexical weights, keeping both meaning-based and exact-term
+matches useful for study questions.
 """
+import re
+import unicodedata
+
 from rank_bm25 import BM25Okapi
 
+from app.core.config import settings
 from app.db.mongo import get_chunks_collection
-from app.services.embeddings import encode, cosine
+from app.services.embeddings import cosine, encode
 
-# RRF damping constant. 60 is the standard value from the original RRF
-# paper (Cormack et al., 2009) - it just softens the impact of rank
-# position so #1 vs #2 isn't wildly more important than #20 vs #21.
-RRF_K = 60
-
-# How much weight semantic vs. lexical ranking gets in the fused score.
-# Weighted slightly toward semantic search (0.6) because for a study
-# assistant, matching the *meaning* of a student's question usually
-# matters more than matching its exact wording (0.4).
-SEMANTIC_WEIGHT = 0.6
-LEXICAL_WEIGHT = 0.4
-
-# Only the top N results from each method are considered candidates for
-# the final fused ranking - this keeps things fast and is standard
-# practice, since a chunk ranked #500 by a method is never going to win.
-CANDIDATE_POOL_SIZE = 30
+def normalize_query(query: str) -> str:
+    normalized = unicodedata.normalize("NFKC", query or "")
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return re.sub(r"([!?.,])\1+", r"\1", normalized)
 
 
-async def hybrid_retrieve(user_id: str, query: str, top_k: int = 6) -> list[dict]:
+async def hybrid_retrieve(
+    user_id: str,
+    query: str,
+    top_k: int = 6,
+    filters: dict | None = None,
+) -> list[dict]:
     """Returns the `top_k` most relevant chunks for `query`, scoped to
     this user's own uploaded documents only."""
     chunks = get_chunks_collection()
-    user_chunks = await chunks.find({"user_id": user_id}).to_list(length=5000)
+    query_filter = {"user_id": user_id}
+    for field, value in (filters or {}).items():
+        if value is not None and field in {"document_id", "chapter", "section", "topic", "content_type"}:
+            query_filter[field] = value
+    if filters and filters.get("page_min") is not None:
+        query_filter["page_end"] = {"$gte": filters["page_min"]}
+    if filters and filters.get("page_max") is not None:
+        query_filter["page_start"] = {"$lte": filters["page_max"]}
+    user_chunks = await chunks.find(query_filter).to_list(length=5000)
     if not user_chunks:
         return []
 
     # --- semantic ranking ---
     query_vector = encode([query])[0]
-    semantic_scored = [(cosine(query_vector, c["embedding"]), c) for c in user_chunks]
+    semantic_scored = [(cosine(query_vector, c["embedding"]), c) for c in user_chunks if c.get("embedding")]
     semantic_scored.sort(key=lambda pair: pair[0], reverse=True)
-    semantic_rank = {str(c["_id"]): rank for rank, (_, c) in enumerate(semantic_scored)}
 
     # --- lexical (keyword) ranking ---
-    tokenized_chunks = [c["text"].lower().split() for c in user_chunks]
+    tokenized_chunks = [re.findall(r"\w+", c.get("text", "").casefold()) for c in user_chunks]
     bm25 = BM25Okapi(tokenized_chunks)
-    lexical_scores = bm25.get_scores(query.lower().split())
+    lexical_scores = bm25.get_scores(re.findall(r"\w+", query.casefold()))
     lexical_scored = sorted(zip(lexical_scores, user_chunks), key=lambda pair: pair[0], reverse=True)
-    lexical_rank = {str(c["_id"]): rank for rank, (_, c) in enumerate(lexical_scored)}
 
-    # --- fuse the two rankings with RRF ---
+    # Normalize both score families before combining them.
     candidates: dict[str, tuple[float, dict]] = {}
-    pool = semantic_scored[:CANDIDATE_POOL_SIZE] + lexical_scored[:CANDIDATE_POOL_SIZE]
+    pool_size = settings.rag_candidate_pool_size
+    pool = semantic_scored[:pool_size] + lexical_scored[:pool_size]
+    semantic_values = [score for score, _ in semantic_scored]
+    lexical_values = [score for score, _ in lexical_scored]
+
+    def scale(value: float, values: list[float]) -> float:
+        if not values or max(values) == min(values):
+            return 1.0 if value > 0 else 0.0
+        return (value - min(values)) / (max(values) - min(values))
+
     for _, chunk in pool:
         key = str(chunk["_id"])
-        # a chunk missing from one list (rank 999 = "effectively last")
-        # still gets some credit from the list it *does* appear in
-        rrf_score = (
-            SEMANTIC_WEIGHT / (RRF_K + semantic_rank.get(key, 999))
-            + LEXICAL_WEIGHT / (RRF_K + lexical_rank.get(key, 999))
+        semantic_score = next((score for score, item in semantic_scored if str(item["_id"]) == key), 0.0)
+        lexical_score = next((score for score, item in lexical_scored if str(item["_id"]) == key), 0.0)
+        hybrid_score = (
+            settings.rag_semantic_weight * scale(semantic_score, semantic_values)
+            + settings.rag_lexical_weight * scale(lexical_score, lexical_values)
         )
-        candidates[key] = (rrf_score, chunk)
+        candidates[key] = (hybrid_score, chunk)
 
     ranked = sorted(candidates.values(), key=lambda pair: pair[0], reverse=True)[:top_k]
 
     return [
         {
+            "chunk_id": str(chunk.get("_id")),
+            "document_id": chunk.get("document_id"),
+            "user_id": chunk.get("user_id"),
             "text": chunk["text"],
             "filename": chunk["filename"],
             "page": chunk.get("page", 1),
+            "page_start": chunk.get("page_start", chunk.get("page", 1)),
+            "page_end": chunk.get("page_end", chunk.get("page", 1)),
+            "chapter": chunk.get("chapter"),
+            "section": chunk.get("section"),
+            "topic": chunk.get("topic"),
+            "concepts": chunk.get("concepts", []),
+            "content_type": chunk.get("content_type"),
+            "hybrid_score": round(score, 4),
+            "relevance_score": round(score, 4),
             "score": round(score, 4),
         }
         for score, chunk in ranked

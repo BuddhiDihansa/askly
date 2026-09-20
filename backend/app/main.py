@@ -53,7 +53,8 @@ async def create_database_indexes() -> None:
     await ensure_index(conversations, [("user_id", 1), ("created_at", -1)])
     await ensure_index(documents, [("user_id", 1), ("created_at", -1)])
     await ensure_index(chunks, [("user_id", 1)])
-    await ensure_index(chunks, [("document_id", 1)])
+    await ensure_index(chunks, [("user_id", 1), ("document_id", 1)])
+    await ensure_index(chunks, [("user_id", 1), ("chapter", 1), ("section", 1), ("topic", 1)])
     await ensure_index(quiz_attempts, [("user_id", 1), ("created_at", -1)])
     await ensure_index(mastery, [("user_id", 1), ("topic", 1)], unique=True)
 

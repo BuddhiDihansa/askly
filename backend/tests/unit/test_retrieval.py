@@ -1,7 +1,7 @@
 import pytest
 
 from app.db.mongo import get_chunks_collection
-from app.services.retrieval import hybrid_retrieve
+from app.services.retrieval import hybrid_retrieve, normalize_query
 
 
 async def _insert_chunk(user_id, text, filename="doc.pdf", page=1, embedding=None):
@@ -68,3 +68,32 @@ async def test_results_are_scoped_to_the_requesting_user(monkeypatch):
 
     # user A must never see user B's chunks, even if they'd score well
     assert all("user A" in r["text"] for r in results)
+
+
+def test_query_normalization_preserves_meaning():
+    assert normalize_query("  What   is Newton's 2nd law???  ") == "What is Newton's 2nd law?"
+    assert normalize_query("  ") == ""
+
+
+@pytest.mark.asyncio
+async def test_metadata_filter_remains_scoped_to_user(monkeypatch):
+    def fake_encode(texts):
+        return [[1.0, 0.0, 0.0] for _ in texts]
+
+    import app.services.retrieval as retrieval_module
+    monkeypatch.setattr(retrieval_module, "encode", fake_encode)
+
+    chunks = get_chunks_collection()
+    await chunks.insert_one({
+        "user_id": "user-a", "document_id": "doc-a", "text": "private chapter text",
+        "filename": "a.pdf", "chapter": "Chapter 3", "embedding": [1.0, 0.0, 0.0],
+    })
+    await chunks.insert_one({
+        "user_id": "user-b", "document_id": "doc-a", "text": "other chapter text",
+        "filename": "b.pdf", "chapter": "Chapter 3", "embedding": [1.0, 0.0, 0.0],
+    })
+
+    results = await hybrid_retrieve("user-a", "chapter", filters={"chapter": "Chapter 3"})
+    assert len(results) == 1
+    assert results[0]["document_id"] == "doc-a"
+    assert results[0]["user_id"] == "user-a"

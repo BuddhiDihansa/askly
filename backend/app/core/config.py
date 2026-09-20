@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     # ---------------------------------------------------------
 
     embedding_model: str = "all-MiniLM-L6-v2"
+    rag_semantic_weight: float = 0.6
+    rag_lexical_weight: float = 0.4
+    rag_candidate_pool_size: int = 30
+    rag_final_k: int = 6
+    rag_context_max_chars: int = 12000
 
     # ---------------------------------------------------------
     # FRONTEND / CORS
