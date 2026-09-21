@@ -2,6 +2,7 @@
 Document upload + chunking for RAG (see app/services/retrieval.py for
 how these chunks get searched later).
 """
+import asyncio
 import datetime
 import io
 import re
@@ -99,7 +100,9 @@ async def upload(file: UploadFile = File(...), current: dict = Depends(current_u
         if not pieces:
             raise DocumentProcessingError("No learning content could be created from this PDF")
 
-        vectors = encode([piece["text"] for piece in pieces])
+        # embedding a whole PDF is slow CPU work: run it in a worker thread so
+        # other users' requests are not frozen while this upload is processed
+        vectors = await asyncio.to_thread(encode, [piece["text"] for piece in pieces])
         created_at = datetime.datetime.now(datetime.timezone.utc)
         chunk_documents = [
             {

@@ -6,6 +6,16 @@ export const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const TOKEN_KEY = "askly_token";
 
+// An Error that also remembers the HTTP status code (401, 429, 500 ...), so
+// callers can react differently to "not logged in" vs "server hiccup".
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 export async function api(path: string, opts: RequestInit = {}) {
   // NOTE (security trade-off, worth knowing): the JWT is stored in
   // localStorage here for simplicity. That's readable by any JavaScript
@@ -28,7 +38,9 @@ export async function api(path: string, opts: RequestInit = {}) {
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(errorBody.detail || "Request failed");
+    // FastAPI validation errors come back as a list; show something readable
+    const detail = typeof errorBody.detail === "string" ? errorBody.detail : "Request failed";
+    throw new ApiError(detail, response.status);
   }
 
   return response.json();

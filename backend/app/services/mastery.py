@@ -9,6 +9,7 @@ important as today's. EMA weights *recent* performance more heavily,
 so mastery reflects "how the student is doing now", and a bad quiz
 from long ago doesn't permanently drag the score down.
 """
+import re
 from datetime import datetime, timezone
 
 from app.db.mongo import get_mastery_collection
@@ -41,7 +42,16 @@ async def update_mastery(user_id: str, topic: str, correct: int, total: int) -> 
     mastery = get_mastery_collection()
     quiz_score = correct / max(total, 1)  # max(total, 1) avoids a divide-by-zero on an empty quiz
 
-    existing = await mastery.find_one({"user_id": user_id, "topic": topic})
+    # Topic names are matched case-insensitively ("Python" == "python") and
+    # ignoring extra spaces, otherwise the same topic gets split into
+    # several separate mastery records. We keep the spelling that was
+    # stored first as the canonical name.
+    topic = " ".join(topic.split())
+    existing = await mastery.find_one(
+        {"user_id": user_id, "topic": {"$regex": f"^{re.escape(topic)}$", "$options": "i"}}
+    )
+    if existing:
+        topic = existing["topic"]
     previous_mastery = existing["mastery"] if existing else DEFAULT_STARTING_MASTERY
 
     updated_mastery = previous_mastery * PREVIOUS_MASTERY_WEIGHT + quiz_score * NEW_RESULT_WEIGHT

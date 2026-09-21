@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     # ---------------------------------------------------------
 
     groq_api_key: str = ""
-    groq_model: str = "llama-3.3-70b-versatile"
+    groq_model: str = "qwen/qwen3.8-27b"
     ai_timeout_seconds: float = 45.0
 
     # ---------------------------------------------------------
@@ -76,6 +76,12 @@ class Settings(BaseSettings):
     rag_candidate_pool_size: int = 30
     rag_final_k: int = 6
     rag_context_max_chars: int = 12000
+    
+    # Safety cap on how many of ONE user's chunks are loaded into memory and
+    # scored per question. Above this, older chunks would be ignored, so a
+    # warning is logged. (Real fix for huge libraries: Atlas Vector Search.)
+    rag_max_chunks_scanned: int = 20000
+    
 
     # ---------------------------------------------------------
     # FRONTEND / CORS

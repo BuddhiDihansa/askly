@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
-import { api } from "../lib/api";
+import { ApiError, api, clearToken } from "../lib/api";
 
 /**
  * Wrap any page's content in <Guard> to require login.
@@ -27,7 +27,15 @@ export default function Guard({ children }: { children: React.ReactNode }) {
           router.replace("/dashboard");
         }
       })
-      .catch(() => router.replace("/login"));
+      .catch((error) => {
+        // Only send the user to /login when the server says the token is
+        // missing/invalid/expired (401). A network outage or a temporary
+        // 429/500 must NOT log a valid user out.
+        if (error instanceof ApiError && error.status === 401) {
+          clearToken();
+          router.replace("/login");
+        }
+      });
   }, [pathname, router]);
 
   return <>{children}</>;

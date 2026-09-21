@@ -12,11 +12,13 @@ services:
       timeout: 5s
       retries: 3
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        # baked into the frontend at build time (browser -> backend address)
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     ports:
       - "3000:3000"
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
     depends_on:
       backend:
         condition: service_healthy

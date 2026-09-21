@@ -74,7 +74,7 @@ async def generate(payload: QuizRequest, request: Request, current: dict = Depen
     source_chunks = rag_result["results"]
     mastery_levels = await get_mastery(user_id)
     current_mastery = next(
-        (m["mastery"] for m in mastery_levels if m["topic"].lower() == payload.topic.lower()),
+        (m["mastery"] for m in mastery_levels if " ".join(m["topic"].lower().split()) == " ".join(payload.topic.lower().split())),
         0.25,
     )
     difficulty = _pick_difficulty(payload.difficulty, current_mastery)
@@ -113,11 +113,14 @@ async def generate(payload: QuizRequest, request: Request, current: dict = Depen
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
 
-    # strip the answer/explanation before sending to the client - otherwise
-    # a student could just read the answer key out of the network tab
+    # SECURITY: only send the client an explicit allow-list of fields, built
+    # from the *validated* questions. The old code filtered the raw LLM
+    # output by removing "answer"/"explanation", so if the model added any
+    # other field (e.g. "correct_answer", "hint") the answer key leaked
+    # through the network tab. An allow-list can't leak unknown fields.
     questions_without_answers = [
-        {k: v for k, v in q.items() if k not in ("answer", "explanation")}
-        for q in data["questions"]
+        {"question": q["question"], "options": q["options"]}
+        for q in questions
     ]
 
     return {
@@ -148,12 +151,20 @@ async def submit(payload: QuizSubmit, current: dict = Depends(current_user)):
         1 for i, question in enumerate(questions)
         if payload.answers.get(str(i)) == question["answer"]
     )
-    new_mastery = await update_mastery(user_id, quiz["topic"], correct, total)
 
-    await quiz_attempts.update_one(
-        {"_id": quiz["_id"]},
+    # A quiz may only be submitted ONCE. Otherwise a student could submit the
+    # same (already answered) quiz again and again to push mastery towards
+    # 100%. The "claim" below is a single atomic database operation: it only
+    # matches while `submitted_at` does not exist yet, so even two requests
+    # arriving at the same instant cannot both succeed.
+    claim = await quiz_attempts.update_one(
+        {"_id": quiz["_id"], "submitted_at": {"$exists": False}},
         {"$set": {"score": correct, "submitted_at": datetime.now(timezone.utc).isoformat()}},
     )
+    if claim.matched_count == 0:
+        raise HTTPException(status_code=409, detail="This quiz has already been submitted")
+
+    new_mastery = await update_mastery(user_id, quiz["topic"], correct, total)
     await create_notification(
         user_id,
         "Quiz reviewed",

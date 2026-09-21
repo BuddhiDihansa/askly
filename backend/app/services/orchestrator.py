@@ -3,6 +3,9 @@ The AI Orchestrator: decides what context the LLM needs before answering
 a student's message, then asks the LLM to answer *grounded* in that
 context (see the system prompt below for how hallucination is controlled).
 """
+from bson import ObjectId
+from bson.errors import InvalidId
+
 from app.ai.llm import chat
 from app.db.mongo import get_users_collection
 from app.services.mastery import get_mastery
@@ -10,9 +13,6 @@ from app.services.rag import retrieve
 from app.services.web_search import search_web
 from app.services.tutor import insufficient_evidence_message, plan_tutor_request
 
-# if the student's message contains any of these words, assume they want
-# up-to-date information the LLM's training data can't have, and trigger
-# a live web search rather than relying on the model's memorized knowledge
 # how many of the student's most recent mastery topics to show the LLM,
 # so answers can be pitched at roughly the right level without the
 # prompt growing unbounded as a student studies more topics over time
@@ -31,6 +31,24 @@ to answer this" than to make something up. Explain difficult concepts step-by-st
 'Next step' when useful."""
 
 
+def clean_history(history: list[dict]) -> list[dict]:
+    """Keep only the fields the LLM API accepts.
+
+    Stored conversation messages also carry our own bookkeeping fields
+    ("at" timestamp, "action"). LLM chat APIs such as Groq's reject
+    messages that contain unknown properties, which would make every
+    follow-up message in a conversation fail. So we strip each message
+    down to just role + content, and skip anything malformed.
+    """
+    cleaned = []
+    for message in history[-MAX_HISTORY_MESSAGES:]:
+        role = message.get("role")
+        content = message.get("content")
+        if role in {"user", "assistant"} and isinstance(content, str) and content:
+            cleaned.append({"role": role, "content": content})
+    return cleaned
+
+
 async def answer(user_id: str, message: str, history: list[dict]) -> tuple[str, list[dict], list[dict]]:
     plan = plan_tutor_request(message)
 
@@ -38,8 +56,12 @@ async def answer(user_id: str, message: str, history: list[dict]) -> tuple[str, 
     document_sources = rag_result["sources"]
     web_sources = await search_web(message) if plan.needs_web else []
     mastery_levels = await get_mastery(user_id)
+    try:
+        user_object_id = ObjectId(user_id)
+    except (InvalidId, TypeError):
+        user_object_id = None
     profile = await get_users_collection().find_one(
-        {"_id": __import__("bson").ObjectId(user_id)},
+        {"_id": user_object_id},
         {"_id": 0, "name": 1, "education_level": 1, "learning_goal": 1,
          "preferred_language": 1, "study_style": 1, "study_subjects": 1},
     ) or {}
@@ -65,7 +87,7 @@ async def answer(user_id: str, message: str, history: list[dict]) -> tuple[str, 
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        *history[-MAX_HISTORY_MESSAGES:],
+        *clean_history(history),
         {"role": "user", "content": user_prompt},
     ]
     if not document_sources and not web_sources and plan.document_only:

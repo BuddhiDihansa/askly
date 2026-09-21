@@ -41,7 +41,7 @@ async def register(payload: RegisterRequest, request: Request) -> TokenResponse:
     # rate-limited per IP so a script can't mass-create accounts
     check_rate_limit(
         key=f"register:{client_ip(request)}",
-        max_per_minute=settings.rate_limit_login_per_minute,
+        max_per_minute=settings.rate_limit_register_per_minute,
     )
 
     users = get_users_collection()

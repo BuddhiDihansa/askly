@@ -24,7 +24,8 @@ export default function Quiz() {
   }
 
   async function submit() {
-    if (!quiz) return;
+    // a quiz can only be submitted once (the server enforces this too)
+    if (!quiz || (result && !result.error)) return;
     try { setResult(await api("/api/quiz/submit", { method: "POST", body: JSON.stringify({ quiz_id: quiz.quiz_id, answers }) })); }
     catch (e: any) { setResult({ error: e.message }); }
   }
@@ -59,7 +60,7 @@ export default function Quiz() {
                   ))}
                 </div>
               ))}
-              <button className="btn" onClick={submit} disabled={Object.keys(answers).length !== quiz.questions.length}><CheckCircle2 size={16} style={{ verticalAlign: "-3px" }} /> Submit & update mastery</button>
+              <button className="btn" onClick={submit} disabled={Object.keys(answers).length !== quiz.questions.length || (!!result && !result.error)}><CheckCircle2 size={16} style={{ verticalAlign: "-3px" }} /> Submit & update mastery</button>
 
               {result && !result.error && (
                 <div className="card" style={{ marginTop: 18, background: "rgba(67,217,197,.06)", borderColor: "rgba(67,217,197,.18)" }}>

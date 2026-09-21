@@ -46,6 +46,18 @@ def _public(card: dict) -> dict:
         "repetitions": card.get("repetitions", 0),
     }
 
+def _card_front(topic: str, result: dict, number: int) -> str:
+    """Question shown on the front of a card.
+
+    Every card used to get the identical front, so a student could not tell
+    the cards apart. Now the front names the specific section/topic/page the
+    card comes from, e.g. "Functions - what are the key ideas? (notes.pdf, p.2)".
+    """
+    heading = result.get("section") or result.get("topic") or result.get("chapter")
+    page = result.get("page_start", result.get("page", 1))
+    filename = result.get("filename") or "your document"
+    subject = f"{topic}: {heading}" if heading and heading.lower() != topic.lower() else topic
+    return f"{subject} - what are the key ideas? ({filename}, p.{page}, card {number})"
 
 @router.post("/generate")
 async def generate(payload: FlashcardGenerateRequest, current: dict = Depends(current_user)):
@@ -56,10 +68,10 @@ async def generate(payload: FlashcardGenerateRequest, current: dict = Depends(cu
     cards = get_flashcards_collection()
     created = []
     now = datetime.now(timezone.utc)
-    for result in rag["results"][:payload.count]:
+    for number, result in enumerate(rag["results"][:payload.count], start=1):
         card = {
             "user_id": user_id,
-            "front": f"What should you remember about {payload.topic}?",
+            "front": _card_front(payload.topic, result, number),
             "back": result["text"].strip()[:1200],
             "topic": payload.topic,
             "source": {"source_type": "document", "filename": result.get("filename"), "page": result.get("page", 1)},
