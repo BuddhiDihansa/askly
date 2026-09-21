@@ -24,14 +24,13 @@ export default function ThemeToggle() {
 
   const isLight = theme === "light";
   return (
-    <button
-      className="theme-toggle"
-      type="button"
-      onClick={toggleTheme}
-      aria-label={`Switch to ${isLight ? "dark" : "light"} mode`}
-      title={`Switch to ${isLight ? "dark" : "light"} mode`}
-    >
-      {isLight ? <Moon size={16} /> : <Sun size={16} />}
-    </button>
+    <div className="theme-toggle" role="group" aria-label="Color theme">
+      <button className={!isLight ? "theme-choice active" : "theme-choice"} type="button" onClick={() => { if (isLight) toggleTheme(); }} aria-pressed={!isLight}>
+        <Moon size={14} /> Dark
+      </button>
+      <button className={isLight ? "theme-choice active" : "theme-choice"} type="button" onClick={() => { if (!isLight) toggleTheme(); }} aria-pressed={isLight}>
+        <Sun size={14} /> Light
+      </button>
+    </div>
   );
 }

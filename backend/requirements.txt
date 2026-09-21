@@ -9,7 +9,7 @@ python-dotenv==1.1.1
 python-multipart==0.0.20
 passlib[bcrypt]==1.7.4
 python-jose[cryptography]==3.5.0
-bcrypt==4.3.0
+bcrypt==4.0.1
 groq==0.31.0
 httpx==0.28.1
 pypdf==6.0.0
